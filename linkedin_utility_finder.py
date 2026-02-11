@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LinkedIn Utility Finder
+LinkedIn Utility Finder — CSV Mode
 
 Scans your LinkedIn connections export (CSV) to find people who work at
 utility companies (electric, gas, water, etc.).
@@ -10,12 +10,6 @@ Usage:
        LinkedIn > Settings > Data Privacy > Get a copy of your data > Connections
     2. Download the CSV file when LinkedIn emails it to you
     3. Run: python linkedin_utility_finder.py Connections.csv
-
-Options:
-    --custom-keywords   Add extra keywords to search for (comma-separated)
-    --custom-companies  Add extra company names to match (comma-separated)
-    --output            Save results to a CSV file
-    --verbose           Show all connections, not just matches
 """
 
 import argparse
@@ -23,211 +17,11 @@ import csv
 import sys
 from pathlib import Path
 
-
-# --- Known utility companies (US-focused, expandable) ---
-KNOWN_UTILITY_COMPANIES = {
-    # Electric
-    "duke energy",
-    "southern company",
-    "dominion energy",
-    "nextera energy",
-    "exelon",
-    "american electric power",
-    "aep",
-    "entergy",
-    "firstenergy",
-    "xcel energy",
-    "eversource energy",
-    "eversource",
-    "consolidated edison",
-    "con edison",
-    "coned",
-    "pacific gas and electric",
-    "pacific gas & electric",
-    "pg&e",
-    "pge",
-    "southern california edison",
-    "sce",
-    "florida power & light",
-    "florida power and light",
-    "fpl",
-    "georgia power",
-    "virginia electric and power",
-    "dominion virginia power",
-    "commonwealth edison",
-    "comed",
-    "peco energy",
-    "baltimore gas and electric",
-    "bge",
-    "pepco",
-    "atlantic city electric",
-    "delmarva power",
-    "consumers energy",
-    "dte energy",
-    "dte",
-    "we energies",
-    "wisconsin energy",
-    "alliant energy",
-    "ameren",
-    "evergy",
-    "westar energy",
-    "kansas city power and light",
-    "kcpl",
-    "empire district electric",
-    "avista",
-    "idaho power",
-    "portland general electric",
-    "puget sound energy",
-    "pacificorp",
-    "rocky mountain power",
-    "tucson electric power",
-    "arizona public service",
-    "aps",
-    "salt river project",
-    "srp",
-    "nevada energy",
-    "nv energy",
-    "hawaiian electric",
-    "heco",
-    "entergy arkansas",
-    "entergy louisiana",
-    "entergy mississippi",
-    "entergy texas",
-    "cleco",
-    "oncor",
-    "centerpoint energy",
-    "atmos energy",
-    "sempra energy",
-    "san diego gas & electric",
-    "san diego gas and electric",
-    "sdg&e",
-    "national grid",
-    "pseg",
-    "public service enterprise group",
-    "ppl corporation",
-    "ppl electric",
-    "algonquin power",
-    "avangrid",
-    "cms energy",
-    "pinnacle west",
-    "oge energy",
-    "oklahoma gas and electric",
-    "black hills energy",
-    "el paso electric",
-    "green mountain power",
-    "unitil",
-    "liberty utilities",
-    "new england power",
-    "berkshire hathaway energy",
-    "midamerican energy",
-    "tampa electric",
-    "teco energy",
-    # Gas
-    "southern union",
-    "spire",
-    "laclede gas",
-    "new jersey resources",
-    "south jersey industries",
-    "southwest gas",
-    "nicor gas",
-    "peoples gas",
-    "columbia gas",
-    "nisource",
-    "piedmont natural gas",
-    "questar",
-    "washington gas",
-    "wgl holdings",
-    # Water
-    "american water works",
-    "american water",
-    "aqua america",
-    "essential utilities",
-    "california water service",
-    "sjw group",
-    "york water",
-    "middlesex water",
-    "artesian resources",
-    "connecticut water",
-    "american states water",
-    "suez water",
-    "veolia water",
-    "veolia",
-    # Multi-utility / Holding
-    "berkshire hathaway energy",
-    "emera",
-    "fortis",
-    "hydro one",
-    "ontario power generation",
-    "bc hydro",
-    "edf energy",
-    "engie",
-    "iberdrola",
-    "enel",
-    "eon",
-    "e.on",
-    "rwe",
-    # Municipal / cooperative keywords handled by UTILITY_KEYWORDS below
-}
-
-# --- Keywords that suggest a utility company ---
-UTILITY_KEYWORDS = [
-    "electric",
-    "electricity",
-    "power company",
-    "power authority",
-    "power & light",
-    "power and light",
-    "energy company",
-    "energy corp",
-    "gas & electric",
-    "gas and electric",
-    "public utility",
-    "public utilities",
-    "utility district",
-    "utility commission",
-    "water authority",
-    "water district",
-    "water company",
-    "water service",
-    "water works",
-    "waterworks",
-    "municipal utility",
-    "municipal electric",
-    "cooperative electric",
-    "electric cooperative",
-    "electric co-op",
-    "rural electric",
-    "light and power",
-    "light & power",
-    "hydro",
-    "hydroelectric",
-    "nuclear power",
-    "transmission",
-    "grid operator",
-    "independent system operator",
-    "iso-ne",
-    "ercot",
-    "caiso",
-    "pjm interconnection",
-    "miso energy",
-    "spp",
-    "natural gas",
-    "gas utility",
-    "sewage",
-    "sewer authority",
-    "wastewater",
-]
+from utility_matcher import is_utility_company
 
 
 def detect_csv_columns(headers):
-    """Detect which columns contain the relevant data.
-
-    LinkedIn's export format has changed over the years. Common column names:
-    - "First Name", "Last Name", "Company", "Position"
-    - "first_name", "last_name", "company", "title"
-    """
-    headers_lower = [h.strip().lower() for h in headers]
-
+    """Detect which columns contain the relevant data."""
     col_map = {
         "first_name": None,
         "last_name": None,
@@ -240,7 +34,7 @@ def detect_csv_columns(headers):
     company_candidates = ["company", "organization", "employer"]
     position_candidates = ["position", "title", "job title", "job_title", "role"]
 
-    for i, h in enumerate(headers_lower):
+    for i, h in enumerate(h.strip().lower() for h in headers):
         if h in first_name_candidates:
             col_map["first_name"] = i
         elif h in last_name_candidates:
@@ -253,41 +47,6 @@ def detect_csv_columns(headers):
     return col_map
 
 
-def is_utility_company(company_name, extra_companies=None, extra_keywords=None):
-    """Check if a company name matches a known utility or utility keyword."""
-    if not company_name:
-        return False
-
-    name_lower = company_name.strip().lower()
-
-    if not name_lower:
-        return False
-
-    # Check against known utility companies
-    all_companies = KNOWN_UTILITY_COMPANIES
-    if extra_companies:
-        all_companies = all_companies | {c.lower().strip() for c in extra_companies}
-
-    if name_lower in all_companies:
-        return True
-
-    # Check if any known company name is contained within the company field
-    for known in all_companies:
-        if known in name_lower or name_lower in known:
-            return True
-
-    # Check for keyword matches
-    all_keywords = UTILITY_KEYWORDS
-    if extra_keywords:
-        all_keywords = all_keywords + [k.lower().strip() for k in extra_keywords]
-
-    for keyword in all_keywords:
-        if keyword in name_lower:
-            return True
-
-    return False
-
-
 def parse_connections_csv(filepath):
     """Parse a LinkedIn connections CSV and return rows as dicts."""
     path = Path(filepath)
@@ -297,11 +56,7 @@ def parse_connections_csv(filepath):
 
     connections = []
 
-    # LinkedIn CSVs sometimes have a few junk lines at the top; try to
-    # detect the header row by looking for a line that contains "First Name"
-    # or "first_name" or "Company".
     with open(path, newline="", encoding="utf-8-sig") as f:
-        # Read all lines to find the header
         raw_lines = f.readlines()
 
     header_idx = None
@@ -342,11 +97,7 @@ def parse_connections_csv(filepath):
 
 def find_utility_connections(connections, extra_companies=None, extra_keywords=None):
     """Filter connections to those working at utility companies."""
-    matches = []
-    for conn in connections:
-        if is_utility_company(conn["company"], extra_companies, extra_keywords):
-            matches.append(conn)
-    return matches
+    return [c for c in connections if is_utility_company(c["company"], extra_companies, extra_keywords)]
 
 
 def write_results_csv(matches, output_path):
@@ -372,7 +123,6 @@ def print_results(matches, total_count):
     print(f"  (out of {total_count} total connections)")
     print(f"{'='*70}\n")
 
-    # Group by company
     by_company = {}
     for m in matches:
         co = m["company"] or "(unknown)"
@@ -393,7 +143,7 @@ def print_results(matches, total_count):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Find LinkedIn connections who work at utility companies.",
+        description="Find LinkedIn connections who work at utility companies (CSV mode).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 How to export your LinkedIn connections:
@@ -403,37 +153,20 @@ How to export your LinkedIn connections:
   4. Download the CSV when LinkedIn emails it to you
   5. Run this script on the downloaded CSV file
 
+For browser-based scraping (includes 2nd-degree connections), use:
+  python linkedin_scraper.py --email you@example.com --depth 2
+
 Examples:
   python linkedin_utility_finder.py Connections.csv
   python linkedin_utility_finder.py Connections.csv --output results.csv
   python linkedin_utility_finder.py Connections.csv --custom-keywords "solar,wind"
-  python linkedin_utility_finder.py Connections.csv --custom-companies "My Local Utility"
         """,
     )
-    parser.add_argument(
-        "csv_file",
-        help="Path to your LinkedIn Connections CSV export",
-    )
-    parser.add_argument(
-        "--custom-keywords",
-        help="Additional keywords to match (comma-separated)",
-        default="",
-    )
-    parser.add_argument(
-        "--custom-companies",
-        help="Additional company names to match (comma-separated)",
-        default="",
-    )
-    parser.add_argument(
-        "--output", "-o",
-        help="Save results to a CSV file",
-        default="",
-    )
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Show additional details during processing",
-    )
+    parser.add_argument("csv_file", help="Path to your LinkedIn Connections CSV export")
+    parser.add_argument("--custom-keywords", default="", help="Additional keywords to match (comma-separated)")
+    parser.add_argument("--custom-companies", default="", help="Additional company names to match (comma-separated)")
+    parser.add_argument("--output", "-o", default="", help="Save results to a CSV file")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show additional details")
 
     args = parser.parse_args()
 
@@ -442,10 +175,6 @@ Examples:
 
     if args.verbose:
         print(f"Reading: {args.csv_file}")
-        if extra_keywords:
-            print(f"Extra keywords: {extra_keywords}")
-        if extra_companies:
-            print(f"Extra companies: {extra_companies}")
 
     connections = parse_connections_csv(args.csv_file)
 
