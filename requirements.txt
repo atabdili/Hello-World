@@ -1,0 +1,4 @@
+TTS>=0.22.0
+torch>=2.0.0
+torchaudio>=2.0.0
+soundfile>=0.12.1
