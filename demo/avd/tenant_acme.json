@@ -1,0 +1,15 @@
+{
+  "_comment": "Resolved tenant intent: Claude's extraction + Infrahub lookups + pool allocations.",
+  "ticket": "CHG0012345",
+  "tenant_name": "acme",
+  "vlan_id": 210,
+  "vni_base": 10000,
+  "prefix": "10.20.10.0/24",
+  "gateway": "10.20.10.1/24",
+  "server_attachments": [
+    {"name": "acme-srv1", "switches": ["leaf3", "leaf4"], "switch_ports": ["Ethernet10", "Ethernet10"],
+     "endpoint_ports": ["eth0", "eth1"], "lacp": true}
+  ],
+  "firewall": {"name": "fw01", "switch": "border1", "switch_port": "Ethernet40", "endpoint_port": "ethernet1/1",
+               "subinterface": "ethernet1/1.210", "zone": "acme"}
+}

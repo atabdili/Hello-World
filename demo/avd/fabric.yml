@@ -1,0 +1,50 @@
+# AVD eos_designs inputs for the DC1 fabric, *without* any tenant.
+# In the full demo this file is not hand-written: an Infrahub transform renders
+# it from DcimDevice / interfaces / pools (see README "Where the inputs come from").
+fabric_name: DC1
+underlay_routing_protocol: ebgp
+
+spine:
+  defaults:
+    platform: vEOS-lab
+    bgp_as: "65100"
+    loopback_ipv4_pool: 10.255.0.0/27
+  nodes:
+    - {name: spine1, id: 1, mgmt_ip: 192.168.0.11/24}
+
+l3leaf:
+  defaults:
+    platform: vEOS-lab
+    loopback_ipv4_pool: 10.255.0.0/27
+    vtep_loopback_ipv4_pool: 10.255.1.0/27
+    uplink_switches: [spine1]
+    uplink_interfaces: [Ethernet1]
+    uplink_ipv4_pool: 10.255.255.0/26
+    mlag_interfaces: [Ethernet47, Ethernet48]
+    mlag_peer_ipv4_pool: 10.255.252.0/24
+    mlag_peer_l3_ipv4_pool: 10.255.251.0/24
+    virtual_router_mac_address: "00:1c:73:00:dc:01"
+    spanning_tree_mode: mstp
+    filter:
+      only_vlans_in_use: true      # a VLAN lands only on switches with a port using it
+  node_groups:
+    - group: row-b
+      bgp_as: "65101"
+      nodes:
+        - {name: leaf3, id: 3, mgmt_ip: 192.168.0.13/24, uplink_switch_interfaces: [Ethernet3]}
+        - {name: leaf4, id: 4, mgmt_ip: 192.168.0.14/24, uplink_switch_interfaces: [Ethernet4]}
+    - group: border
+      bgp_as: "65102"
+      nodes:
+        - {name: border1, id: 5, mgmt_ip: 192.168.0.15/24, uplink_switch_interfaces: [Ethernet5]}
+
+# Host-to-node-type mapping (AVD normally takes this from the Ansible inventory).
+avd_hosts:
+  spine1: spine
+  leaf3: l3leaf
+  leaf4: l3leaf
+  border1: l3leaf
+
+tenants: []
+servers: []
+firewalls: []
