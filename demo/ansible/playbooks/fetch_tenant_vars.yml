@@ -1,0 +1,22 @@
+---
+# Production path: pull the AVD tenant/endpoint vars that an Infrahub transform
+# renders from the tenant intents on a branch, into group_vars/DC1/tenants.yml.
+#   ansible-playbook playbooks/fetch_tenant_vars.yml -e infrahub_branch=CHG0012345-acme
+# Needs INFRAHUB_ADDRESS / INFRAHUB_API_TOKEN. The artifact definition
+# "avd-tenant-vars" targets the DC1 fabric object (fabric_target_id).
+- name: Fetch AVD tenant vars from Infrahub
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Fetch artifact for the change branch
+      opsmill.infrahub.artifact_fetch:
+        artifact_name: avd-tenant-vars
+        target_id: "{{ fabric_target_id }}"
+        branch: "{{ infrahub_branch | default('main') }}"
+      register: tenant_vars
+
+    - name: Write group_vars/DC1/tenants.yml
+      ansible.builtin.copy:
+        content: "{{ tenant_vars.text }}"
+        dest: "{{ playbook_dir }}/../inventory/group_vars/DC1/tenants.yml"
+        mode: "0644"

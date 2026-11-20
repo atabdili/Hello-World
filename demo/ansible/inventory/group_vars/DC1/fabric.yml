@@ -1,6 +1,4 @@
-# AVD eos_designs inputs for the DC1 fabric, *without* any tenant.
-# In the full demo this file is not hand-written: an Infrahub transform renders
-# it from DcimDevice / interfaces / pools (see README "Where the inputs come from").
+# AVD eos_designs: DC1 fabric baseline (no tenants). Changes rarely.
 fabric_name: DC1
 underlay_routing_protocol: ebgp
 
@@ -37,14 +35,3 @@ l3leaf:
       bgp_as: "65102"
       nodes:
         - {name: border1, id: 5, mgmt_ip: 192.168.0.15/24, uplink_switch_interfaces: [Ethernet5]}
-
-# Host-to-node-type mapping (AVD normally takes this from the Ansible inventory).
-avd_hosts:
-  spine1: spine
-  leaf3: l3leaf
-  leaf4: l3leaf
-  border1: l3leaf
-
-tenants: []
-servers: []
-firewalls: []

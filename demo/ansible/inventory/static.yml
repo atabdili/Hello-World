@@ -1,0 +1,18 @@
+# Offline inventory for the demo. In production use inventory/infrahub.yml,
+# which builds the same groups from Infrahub (on the change's branch).
+all:
+  children:
+    FABRIC:
+      children:
+        DC1:
+          children:
+            DC1_SPINES:
+              vars: {type: spine}
+              hosts:
+                spine1: {ansible_host: 192.168.0.11}
+            DC1_L3LEAVES:
+              vars: {type: l3leaf}
+              hosts:
+                leaf3: {ansible_host: 192.168.0.13}
+                leaf4: {ansible_host: 192.168.0.14}
+                border1: {ansible_host: 192.168.0.15}

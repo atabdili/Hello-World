@@ -1,0 +1,9 @@
+# ansible-galaxy collection install -r requirements.yml -p collections
+# pyavd must match arista.avd exactly:  pip install "pyavd==6.5.0"
+collections:
+  - name: arista.avd
+    version: "6.5.0"
+  - name: opsmill.infrahub
+    version: ">=1.9.0"
+  - name: arista.eos                # deploy via eAPI
+  - name: ansible.netcommon

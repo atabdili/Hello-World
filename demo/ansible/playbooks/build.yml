@@ -1,0 +1,15 @@
+---
+# Render intended configs with AVD (no device access).
+#   ansible-playbook playbooks/build.yml -e build_name=baseline   # tenants.yml from main
+#   ansible-playbook playbooks/build.yml -e build_name=change     # tenants.yml from the branch
+- name: Build fabric configurations with AVD
+  hosts: DC1
+  gather_facts: false
+  tasks:
+    - name: Generate structured configuration (eos_designs)
+      ansible.builtin.import_role:
+        name: arista.avd.eos_designs
+
+    - name: Generate EOS configuration (eos_cli_config_gen)
+      ansible.builtin.import_role:
+        name: arista.avd.eos_cli_config_gen

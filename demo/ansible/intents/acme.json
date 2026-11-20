@@ -1,5 +1,5 @@
 {
-  "_comment": "Resolved tenant intent: Claude's extraction + Infrahub lookups + pool allocations.",
+  "_comment": "Resolved tenant intent: Claude extraction + Infrahub lookups + pool allocations.",
   "ticket": "CHG0012345",
   "tenant_name": "acme",
   "vlan_id": 210,

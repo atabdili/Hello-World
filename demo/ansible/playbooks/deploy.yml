@@ -1,0 +1,16 @@
+---
+# Push intended configs (full config replace over eAPI).
+#   Assess:     ansible-playbook playbooks/deploy.yml -e build_name=change --check --diff
+#               -> running vs intended diff per device, also exposes drift
+#   Implement:  ansible-playbook playbooks/deploy.yml -e build_name=change
+#   Backout:    ansible-playbook playbooks/deploy.yml -e build_name=baseline
+# --limit to the devices in the change record's affected CIs.
+- name: Deploy fabric configuration
+  hosts: DC1
+  gather_facts: false
+  vars:
+    eos_config_deploy_eapi_pre_running_config_backup: true   # evidence + manual backout
+  tasks:
+    - name: Replace device configuration with AVD intended config
+      ansible.builtin.import_role:
+        name: arista.avd.eos_config_deploy_eapi

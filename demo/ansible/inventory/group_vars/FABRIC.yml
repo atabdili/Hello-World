@@ -1,0 +1,12 @@
+# Device access for deploy/validate (eAPI). Credentials come from the vault/CI.
+ansible_connection: ansible.netcommon.httpapi
+ansible_network_os: arista.eos.eos
+ansible_httpapi_use_ssl: true
+ansible_httpapi_validate_certs: false
+ansible_user: "{{ lookup('env', 'EOS_USER') }}"
+ansible_password: "{{ lookup('env', 'EOS_PASSWORD') }}"
+
+# Where AVD writes structured configs / EOS configs / docs. One folder per build
+# so the change service can diff "baseline" (main) against "change" (branch).
+build_name: change
+root_dir: "{{ playbook_dir }}/../build/{{ build_name }}"

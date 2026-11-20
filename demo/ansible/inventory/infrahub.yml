@@ -1,0 +1,24 @@
+# Dynamic inventory from Infrahub (opsmill.infrahub collection).
+#   export INFRAHUB_ADDRESS=https://infrahub.example.net INFRAHUB_API_TOKEN=...
+# `branch` ties a run to one change: Assess/Implement read the change branch,
+# Backout reads main. The plugin does not template `branch`, so the change
+# service writes a copy per change with the branch filled in:
+#   sed 's/^branch: main$/branch: CHG0012345-acme/' inventory/infrahub.yml > inventory/infrahub-CHG0012345.yml
+plugin: opsmill.infrahub.inventory
+branch: main
+strict: true
+nodes:
+  DcimDevice:
+    include:
+      - name
+      - role
+      - primary_address.address
+      - location.name
+compose:
+  ansible_host: primary_address.address.split('/')[0]
+  # AVD node type from the Infrahub device role
+  type: "'spine' if role == 'spine' else 'l3leaf'"
+groups:
+  DC1: location.name == 'dc1'
+  DC1_SPINES: role == 'spine'
+  DC1_L3LEAVES: role in ['leaf', 'tor', 'edge']

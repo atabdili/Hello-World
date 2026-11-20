@@ -1,0 +1,11 @@
+---
+# Post-implementation verification with ANTA tests AVD derives from the
+# fabric data (interfaces, BGP/EVPN peers, VXLAN VNIs, MLAG ...).
+# Results land in build/<build_name>/anta/reports and are attached to the change.
+- name: Validate fabric state
+  hosts: DC1
+  gather_facts: false
+  tasks:
+    - name: Run ANTA via AVD
+      ansible.builtin.import_role:
+        name: arista.avd.eos_validate_state
