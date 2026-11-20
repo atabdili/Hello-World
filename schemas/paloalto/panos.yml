@@ -1,0 +1,1239 @@
+# yaml-language-server: $schema=https://schema.infrahub.app/infrahub/schema/latest.json
+# ---------------------------------------------------------------------------
+# Palo Alto Networks PAN-OS / Panorama extension for the vendor-neutral
+# security schema (../security/security.yml).
+#
+# Load order: schema-library base -> schemas/security -> schemas/paloalto
+#
+# Field names and enums were bootstrapped from PaloAltoNetworks/pan-os-codegen
+# specs (the source of the `panos` Terraform provider v2 and pango SDK) with
+# tools/panos_spec_to_infrahub.py, then curated by hand. docs/mapping.md maps
+# every kind to its PAN-OS XPath and Terraform resource.
+#
+# Design rules
+#   * PAN-OS "locations" (shared / device-group / vsys / template / template-stack)
+#     are nodes inheriting SecurityGenericScope, so all neutral objects (addresses,
+#     services, zones, policies) can live in them unchanged.
+#   * Only things PAN-OS does differently get a Panos* node; everything else
+#     reuses the neutral Security* nodes.
+#   * PAN-OS administrative tags = BuiltinTag + `panos_color` (extension below).
+# ---------------------------------------------------------------------------
+---
+version: "1.0"
+
+generics:
+  - name: GenericScopedObject
+    namespace: Panos
+    label: PAN-OS Object
+    description: Named PAN-OS object living in a scope (shared / device-group / vsys / template).
+    include_in_menu: false
+    human_friendly_id: [scope__name__value, name__value]
+    display_label: name__value
+    order_by: [name__value]
+    uniqueness_constraints:
+      - [scope, name__value]
+    attributes:
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1100
+    relationships:
+      - name: scope
+        peer: SecurityGenericScope
+        kind: Attribute
+        cardinality: one
+        optional: false
+        order_weight: 900
+
+  - name: GenericInterface
+    namespace: Panos
+    label: PAN-OS Interface
+    description: Mixin with the PAN-OS bindings every data-plane interface shares.
+    include_in_menu: false
+    relationships:
+      - name: vsys
+        label: Virtual System
+        peer: PanosVsys
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_vsys__interface
+        order_weight: 1460
+      - name: virtual_router
+        label: Virtual / Logical Router
+        peer: PanosVirtualRouter
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_virtual_router__interface
+        order_weight: 1470
+      - name: management_profile
+        label: Interface Mgmt Profile
+        peer: PanosInterfaceManagementProfile
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_interface__management_profile
+        order_weight: 1480
+
+nodes:
+  # ======================================================== management plane
+  - name: Panorama
+    namespace: Panos
+    label: Panorama
+    description: Panorama management server. Also the "shared" scope for Panorama-pushed objects.
+    icon: mdi:monitor-dashboard
+    include_in_menu: true
+    inherit_from:
+      - DcimGenericDevice
+      - CoreArtifactTarget
+      - SecurityGenericScope
+    attributes:
+      - name: mode
+        kind: Dropdown
+        default_value: panorama
+        optional: false
+        choices:
+          - {name: panorama, label: Panorama}
+          - {name: management_only, label: Management only}
+          - {name: log_collector, label: Log collector}
+        order_weight: 1200
+      - name: panos_version
+        label: PAN-OS version
+        kind: Text
+        optional: true
+        order_weight: 1300
+    relationships:
+      - name: device_groups
+        peer: PanosDeviceGroup
+        kind: Component
+        cardinality: many
+        optional: true
+        identifier: panos_panorama__device_group
+      - name: templates
+        peer: PanosTemplate
+        kind: Component
+        cardinality: many
+        optional: true
+        identifier: panos_panorama__template
+      - name: template_stacks
+        peer: PanosTemplateStack
+        kind: Component
+        cardinality: many
+        optional: true
+        identifier: panos_panorama__template_stack
+      - name: managed_firewalls
+        peer: PanosFirewall
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: panos_panorama__firewall
+
+  - name: DeviceGroup
+    namespace: Panos
+    label: Device Group
+    description: Panorama device group (policy & object scope). Hierarchy via `parent`.
+    icon: mdi:file-tree
+    include_in_menu: true
+    menu_placement: PanosPanorama
+    inherit_from: [SecurityGenericScope]
+    relationships:
+      - name: panorama
+        peer: PanosPanorama
+        kind: Parent
+        cardinality: one
+        optional: false
+        identifier: panos_panorama__device_group
+        order_weight: 900
+      - name: parent
+        label: Parent device group
+        description: Empty = child of "Shared".
+        peer: PanosDeviceGroup
+        kind: Attribute
+        cardinality: one
+        optional: true
+        direction: outbound
+        identifier: panos_device_group__parent
+        order_weight: 1200
+      - name: children
+        peer: PanosDeviceGroup
+        kind: Generic
+        cardinality: many
+        optional: true
+        direction: inbound
+        identifier: panos_device_group__parent
+        order_weight: 1210
+      - name: reference_templates
+        description: Templates referenced by this device group (for zone/interface lookups).
+        peer: PanosTemplate
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: panos_device_group__template
+        order_weight: 1300
+      - name: firewalls
+        peer: PanosFirewall
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: panos_device_group__firewall
+        order_weight: 1400
+
+  - name: Template
+    namespace: Panos
+    label: Template
+    description: Panorama template (network & device configuration scope).
+    icon: mdi:file-cog-outline
+    include_in_menu: true
+    menu_placement: PanosPanorama
+    inherit_from: [SecurityGenericScope]
+    attributes:
+      - name: default_vsys
+        kind: Text
+        optional: true
+        default_value: vsys1
+        order_weight: 1200
+    relationships:
+      - name: panorama
+        peer: PanosPanorama
+        kind: Parent
+        cardinality: one
+        optional: false
+        identifier: panos_panorama__template
+        order_weight: 900
+
+  - name: TemplateStack
+    namespace: Panos
+    label: Template Stack
+    icon: mdi:layers-outline
+    include_in_menu: true
+    menu_placement: PanosPanorama
+    inherit_from: [SecurityGenericScope]
+    attributes:
+      - name: default_vsys
+        kind: Text
+        optional: true
+        default_value: vsys1
+        order_weight: 1200
+    relationships:
+      - name: panorama
+        peer: PanosPanorama
+        kind: Parent
+        cardinality: one
+        optional: false
+        identifier: panos_panorama__template_stack
+        order_weight: 900
+      - name: entries
+        label: Templates (ordered)
+        peer: PanosTemplateStackEntry
+        kind: Component
+        cardinality: many
+        optional: true
+        identifier: panos_template_stack__entry
+        order_weight: 1300
+      - name: firewalls
+        peer: PanosFirewall
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: panos_template_stack__firewall
+        order_weight: 1400
+
+  - name: TemplateStackEntry
+    namespace: Panos
+    label: Template Stack Entry
+    description: Ordered membership of a template in a stack (lower priority = higher precedence, top of list in PAN-OS).
+    include_in_menu: false
+    display_label: "{{ priority__value }}: {{ template__name__value }}"
+    order_by: [priority__value]
+    uniqueness_constraints:
+      - [stack, priority__value]
+      - [stack, template]
+    attributes:
+      - name: priority
+        kind: Number
+        optional: false
+    relationships:
+      - name: stack
+        peer: PanosTemplateStack
+        kind: Parent
+        cardinality: one
+        optional: false
+        identifier: panos_template_stack__entry
+      - name: template
+        peer: PanosTemplate
+        kind: Attribute
+        cardinality: one
+        optional: false
+        identifier: panos_template_stack_entry__template
+
+  # ======================================================== firewall
+  - name: Firewall
+    namespace: Panos
+    label: PAN-OS Firewall
+    description: Palo Alto Networks NGFW (PA-series hardware or VM-Series).
+    icon: mdi:wall-fire
+    include_in_menu: true
+    inherit_from:
+      - DcimGenericDevice
+      - DcimPhysicalDevice
+      - CoreArtifactTarget
+      - SecurityGenericFirewall
+    attributes:
+      - name: status
+        kind: Dropdown
+        default_value: active
+        optional: false
+        choices:
+          - {name: active, label: Active, color: "#00d25b"}
+          - {name: provisioning, label: Provisioning, color: "#f0ad4e"}
+          - {name: maintenance, label: Maintenance, color: "#ff9800"}
+          - {name: decommissioning, label: Decommissioning, color: "#e04040"}
+        order_weight: 1200
+      - name: role
+        kind: Dropdown
+        optional: true
+        choices:
+          - {name: perimeter, label: Perimeter, color: "#6a5acd"}
+          - {name: internal, label: Internal segmentation, color: "#7f7fff"}
+          - {name: datacenter, label: Data center, color: "#aeeeee"}
+          - {name: branch, label: Branch, color: "#bf7f7f"}
+          - {name: cloud, label: Cloud, color: "#b2d4e6"}
+        order_weight: 1300
+      - name: panos_version
+        label: PAN-OS version
+        kind: Text
+        optional: true
+        order_weight: 1350
+      - name: multi_vsys
+        label: Multi-vsys
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1360
+      - name: routing_engine
+        description: Legacy virtual routers or Advanced Routing Engine (logical routers).
+        kind: Dropdown
+        default_value: legacy
+        optional: false
+        choices:
+          - {name: legacy, label: Legacy (virtual-router)}
+          - {name: advanced, label: Advanced Routing Engine (logical-router)}
+        order_weight: 1370
+    relationships:
+      - name: panorama
+        peer: PanosPanorama
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_panorama__firewall
+        order_weight: 1800
+      - name: device_group
+        peer: PanosDeviceGroup
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_device_group__firewall
+        order_weight: 1810
+      - name: template_stack
+        peer: PanosTemplateStack
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_template_stack__firewall
+        order_weight: 1820
+      - name: virtual_systems
+        peer: PanosVsys
+        kind: Component
+        cardinality: many
+        optional: true
+        identifier: panos_firewall__vsys
+        order_weight: 1830
+
+  - name: Vsys
+    namespace: Panos
+    label: Virtual System
+    description: >-
+      vsys on a firewall (or defined in a template). Policy/object scope.
+      `name` must be globally unique: use e.g. "fw01:vsys1".
+    icon: mdi:server-network
+    include_in_menu: true
+    menu_placement: PanosFirewall
+    inherit_from: [SecurityGenericScope]
+    uniqueness_constraints:
+      - [firewall, vsys_id__value]
+    attributes:
+      - name: vsys_id
+        label: vsys ID
+        description: The N in "vsysN".
+        kind: Number
+        optional: false
+        default_value: 1
+        order_weight: 1050
+      - name: display_name
+        kind: Text
+        optional: true
+        order_weight: 1060
+    relationships:
+      - name: firewall
+        peer: PanosFirewall
+        kind: Parent
+        cardinality: one
+        optional: false
+        identifier: panos_firewall__vsys
+        order_weight: 900
+      - name: interfaces
+        peer: PanosGenericInterface
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: panos_vsys__interface
+        order_weight: 1300
+
+  # ======================================================== interfaces
+  - name: EthernetInterface
+    namespace: Panos
+    label: Ethernet Interface
+    icon: mdi:ethernet
+    include_in_menu: false
+    inherit_from:
+      - DcimInterface
+      - InterfaceLayer2
+      - InterfaceLayer3
+      - DcimEndpoint
+      - SecurityGenericZoneMember
+      - PanosGenericInterface
+    attributes:
+      - name: mode
+        kind: Dropdown
+        default_value: layer3
+        optional: false
+        choices:
+          - {name: layer3, label: Layer 3}
+          - {name: layer2, label: Layer 2}
+          - {name: virtual_wire, label: Virtual Wire}
+          - {name: tap, label: Tap}
+          - {name: ha, label: HA}
+          - {name: aggregate_group, label: Aggregate group member}
+          - {name: decrypt_mirror, label: Decrypt mirror}
+          - {name: log_card, label: Log card}
+        order_weight: 1250
+      - name: link_speed
+        kind: Dropdown
+        default_value: auto
+        optional: false
+        choices:
+          - {name: auto, label: auto}
+          - {name: "10", label: 10 Mbps}
+          - {name: "100", label: 100 Mbps}
+          - {name: "1000", label: 1 Gbps}
+          - {name: "10000", label: 10 Gbps}
+          - {name: "40000", label: 40 Gbps}
+          - {name: "100000", label: 100 Gbps}
+        order_weight: 1500
+      - name: link_duplex
+        kind: Dropdown
+        default_value: auto
+        optional: false
+        choices:
+          - {name: auto, label: auto}
+          - {name: half, label: half}
+          - {name: full, label: full}
+        order_weight: 1510
+      - name: link_state
+        kind: Dropdown
+        default_value: auto
+        optional: false
+        choices:
+          - {name: auto, label: auto}
+          - {name: up, label: up}
+          - {name: down, label: down}
+        order_weight: 1520
+      - name: lacp_port_priority
+        kind: Number
+        optional: true
+        order_weight: 1530
+    relationships:
+      - name: aggregate_group
+        peer: PanosAggregateInterface
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_aggregate__member
+        order_weight: 1540
+      - name: subinterfaces
+        peer: PanosSubInterface
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: panos_subinterface__parent
+        order_weight: 1750
+
+  - name: AggregateInterface
+    namespace: Panos
+    label: Aggregate Ethernet (ae)
+    icon: mdi:ethernet-cable
+    include_in_menu: false
+    inherit_from:
+      - DcimInterface
+      - InterfaceLayer2
+      - InterfaceLayer3
+      - SecurityGenericZoneMember
+      - PanosGenericInterface
+    attributes:
+      - name: mode
+        kind: Dropdown
+        default_value: layer3
+        optional: false
+        choices:
+          - {name: layer3, label: Layer 3}
+          - {name: layer2, label: Layer 2}
+          - {name: virtual_wire, label: Virtual Wire}
+          - {name: ha, label: HA}
+          - {name: decrypt_mirror, label: Decrypt mirror}
+        order_weight: 1250
+      - name: lacp_enabled
+        label: LACP
+        kind: Boolean
+        default_value: true
+        optional: false
+        order_weight: 1500
+      - name: lacp_mode
+        kind: Dropdown
+        default_value: active
+        optional: true
+        choices:
+          - {name: active, label: Active}
+          - {name: passive, label: Passive}
+        order_weight: 1510
+    relationships:
+      - name: members
+        peer: PanosEthernetInterface
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: panos_aggregate__member
+        order_weight: 1540
+      - name: subinterfaces
+        peer: PanosSubInterface
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: panos_subinterface__parent_ae
+        order_weight: 1750
+
+  - name: SubInterface
+    namespace: Panos
+    label: Subinterface
+    description: 802.1Q subinterface on ethernetX/Y or aeN (name e.g. "ethernet1/1.100").
+    icon: mdi:ethernet
+    include_in_menu: false
+    inherit_from:
+      - DcimInterface
+      - InterfaceLayer3
+      - SecurityGenericZoneMember
+      - PanosGenericInterface
+    attributes:
+      - name: vlan_tag
+        label: VLAN tag
+        kind: Number
+        optional: true
+        order_weight: 1250
+    relationships:
+      - name: parent_ethernet
+        peer: PanosEthernetInterface
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_subinterface__parent
+        order_weight: 1240
+      - name: parent_aggregate
+        peer: PanosAggregateInterface
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_subinterface__parent_ae
+        order_weight: 1241
+
+  - name: LoopbackInterface
+    namespace: Panos
+    label: Loopback Interface
+    icon: mdi:sync-circle
+    include_in_menu: false
+    inherit_from:
+      - DcimInterface
+      - InterfaceLayer3
+      - SecurityGenericZoneMember
+      - PanosGenericInterface
+
+  - name: TunnelInterface
+    namespace: Panos
+    label: Tunnel Interface
+    icon: mdi:tunnel-outline
+    include_in_menu: false
+    inherit_from:
+      - DcimInterface
+      - InterfaceLayer3
+      - SecurityGenericZoneMember
+      - PanosGenericInterface
+
+  - name: VlanInterface
+    namespace: Panos
+    label: VLAN Interface
+    icon: mdi:lan
+    include_in_menu: false
+    inherit_from:
+      - DcimInterface
+      - InterfaceLayer3
+      - SecurityGenericZoneMember
+      - PanosGenericInterface
+
+  # ======================================================== network
+  - name: Zone
+    namespace: Panos
+    label: PAN-OS Zone
+    description: Zone defined in a vsys / template / template-stack.
+    icon: game-icons:fire-zone
+    include_in_menu: true
+    menu_placement: SecurityZone
+    inherit_from: [SecurityGenericZone]
+    attributes:
+      - name: zone_type
+        kind: Dropdown
+        default_value: layer3
+        optional: false
+        choices:
+          - {name: layer3, label: Layer 3}
+          - {name: layer2, label: Layer 2}
+          - {name: virtual_wire, label: Virtual Wire}
+          - {name: tap, label: Tap}
+          - {name: tunnel, label: Tunnel}
+          - {name: external, label: External (inter-vsys)}
+        order_weight: 1200
+      - name: enable_user_identification
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1300
+      - name: enable_device_identification
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1310
+      - name: enable_packet_buffer_protection
+        kind: Boolean
+        default_value: true
+        optional: false
+        order_weight: 1320
+    relationships:
+      - name: zone_protection_profile
+        peer: PanosZoneProtectionProfile
+        kind: Attribute
+        cardinality: one
+        optional: true
+        order_weight: 1400
+      - name: log_forwarding_profile
+        peer: PanosLogForwardingProfile
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_zone__log_forwarding_profile
+        order_weight: 1410
+
+  - name: VirtualRouter
+    namespace: Panos
+    label: Virtual / Logical Router
+    description: Legacy virtual-router or ARE logical-router (one default VRF). Maps to an OpenConfig network-instance (L3VRF).
+    icon: mdi:router
+    include_in_menu: true
+    menu_placement: PanosFirewall
+    inherit_from: [PanosGenericScopedObject]
+    attributes:
+      - name: ecmp_enabled
+        label: ECMP
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1200
+      - name: ecmp_max_path
+        kind: Number
+        optional: true
+        order_weight: 1210
+    relationships:
+      - name: interfaces
+        peer: PanosGenericInterface
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: panos_virtual_router__interface
+        order_weight: 1300
+      - name: static_routes
+        peer: PanosStaticRoute
+        kind: Component
+        cardinality: many
+        optional: true
+        identifier: panos_virtual_router__static_route
+        order_weight: 1400
+
+  - name: StaticRoute
+    namespace: Panos
+    label: Static Route
+    icon: mdi:routes
+    include_in_menu: false
+    display_label: "{{ name__value }} ({{ destination__value }})"
+    uniqueness_constraints:
+      - [virtual_router, name__value]
+    attributes:
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: destination
+        kind: IPNetwork
+        optional: false
+        order_weight: 1100
+      - name: nexthop_type
+        kind: Dropdown
+        default_value: ip_address
+        optional: false
+        choices:
+          - {name: ip_address, label: IP address}
+          - {name: next_vr, label: Next virtual router}
+          - {name: discard, label: Discard}
+          - {name: none, label: None (interface only)}
+        order_weight: 1200
+      - name: nexthop
+        label: Next-hop IP
+        kind: IPHost
+        optional: true
+        order_weight: 1210
+      - name: admin_distance
+        kind: Number
+        optional: true
+        order_weight: 1300
+      - name: metric
+        kind: Number
+        optional: true
+        default_value: 10
+        order_weight: 1310
+    relationships:
+      - name: virtual_router
+        peer: PanosVirtualRouter
+        kind: Parent
+        cardinality: one
+        optional: false
+        identifier: panos_virtual_router__static_route
+        order_weight: 900
+      - name: interface
+        label: Egress interface
+        peer: PanosGenericInterface
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_static_route__interface
+        order_weight: 1220
+      - name: next_vr
+        label: Next virtual router
+        peer: PanosVirtualRouter
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_static_route__next_vr
+        order_weight: 1230
+
+  # ======================================================== PAN-OS-only objects
+  - name: IPWildcard
+    namespace: Panos
+    label: Address (IP wildcard)
+    description: PAN-OS ip-wildcard address, e.g. "10.0.0.1/0.0.255.0".
+    icon: mdi:asterisk
+    include_in_menu: true
+    menu_placement: SecurityAddressGroup
+    inherit_from: [SecurityGenericAddress]
+    display_label: "{{ name__value }} ({{ wildcard__value }})"
+    attributes:
+      - name: wildcard
+        kind: Text
+        optional: false
+        regex: "^[0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,3}(\\.[0-9]{1,3}){3}$"
+        order_weight: 1200
+
+  - name: ExternalDynamicList
+    namespace: Panos
+    label: External Dynamic List
+    description: EDL; ip-type EDLs can be used as rule source/destination.
+    icon: mdi:cloud-download-outline
+    include_in_menu: true
+    menu_placement: SecurityAddressGroup
+    inherit_from: [SecurityGenericAddress]
+    attributes:
+      - name: list_type
+        kind: Dropdown
+        default_value: ip
+        optional: false
+        choices:
+          - {name: ip, label: IP}
+          - {name: domain, label: Domain}
+          - {name: url, label: URL}
+          - {name: predefined_ip, label: Predefined IP}
+          - {name: predefined_url, label: Predefined URL}
+          - {name: imei, label: IMEI}
+          - {name: imsi, label: IMSI}
+        order_weight: 1200
+      - name: source_url
+        label: Source URL
+        kind: URL
+        optional: false
+        order_weight: 1210
+      - name: recurring
+        kind: Dropdown
+        default_value: hourly
+        optional: false
+        choices:
+          - {name: five_minute, label: Every 5 minutes}
+          - {name: hourly, label: Hourly}
+          - {name: daily, label: Daily}
+          - {name: weekly, label: Weekly}
+          - {name: monthly, label: Monthly}
+        order_weight: 1220
+      - name: exception_list
+        kind: List
+        optional: true
+        order_weight: 1230
+    relationships:
+      - name: certificate_profile
+        peer: PanosCertificateProfile
+        kind: Attribute
+        cardinality: one
+        optional: true
+        order_weight: 1240
+
+  - name: DynamicAddressGroup
+    namespace: Panos
+    label: Dynamic Address Group
+    description: Membership resolved at runtime from a tag filter, e.g. "'web' and 'prod'".
+    icon: mdi:tag-multiple-outline
+    include_in_menu: true
+    menu_placement: SecurityAddressGroup
+    inherit_from: [SecurityGenericAddressGroup]
+    attributes:
+      - name: filter
+        kind: Text
+        optional: false
+        order_weight: 1200
+
+  - name: ApplicationFilter
+    namespace: Panos
+    label: Application Filter
+    icon: mdi:filter-outline
+    include_in_menu: true
+    menu_placement: SecurityApplication
+    inherit_from: [SecurityGenericApplication]
+    attributes:
+      - name: categories
+        kind: List
+        optional: true
+      - name: subcategories
+        kind: List
+        optional: true
+      - name: technologies
+        kind: List
+        optional: true
+      - name: risks
+        description: Risk levels 1-5.
+        kind: List
+        optional: true
+      - name: excluded_applications
+        kind: List
+        optional: true
+
+  - name: Schedule
+    namespace: Panos
+    label: Schedule
+    icon: mdi:calendar-clock
+    include_in_menu: true
+    menu_placement: SecurityPolicy
+    inherit_from: [PanosGenericScopedObject]
+    attributes:
+      - name: schedule_type
+        kind: Dropdown
+        default_value: recurring_weekly
+        optional: false
+        choices:
+          - {name: recurring_daily, label: Recurring daily}
+          - {name: recurring_weekly, label: Recurring weekly}
+          - {name: non_recurring, label: Non-recurring}
+      - name: definition
+        # daily:         ["07:00-17:00"]
+        # weekly:        {"monday": ["07:00-17:00"], "friday": ["07:00-12:00"]}
+        # non_recurring: ["2026/01/01@00:00-2026/01/31@23:59"]
+        description: Time windows in PAN-OS format (list for daily/non-recurring, day->list map for weekly).
+        kind: JSON
+        optional: false
+
+  # ======================================================== profiles (referenced by name; content = roadmap)
+  - name: SecurityProfile
+    namespace: Panos
+    label: Security Profile
+    description: Content-inspection profile. Referenced by name in v0; profile body is managed in PAN-OS/Panorama.
+    icon: mdi:shield-search
+    include_in_menu: true
+    menu_placement: SecurityPolicy
+    inherit_from: [PanosGenericScopedObject]
+    uniqueness_constraints:
+      - [scope, profile_type__value, name__value]
+    human_friendly_id: [scope__name__value, profile_type__value, name__value]
+    attributes:
+      - name: profile_type
+        kind: Dropdown
+        optional: false
+        choices:
+          - {name: virus, label: Antivirus}
+          - {name: spyware, label: Anti-Spyware}
+          - {name: vulnerability, label: Vulnerability Protection}
+          - {name: url_filtering, label: URL Filtering}
+          - {name: file_blocking, label: File Blocking}
+          - {name: wildfire_analysis, label: WildFire Analysis}
+          - {name: data_filtering, label: Data Filtering}
+          - {name: gtp, label: GTP}
+          - {name: sctp, label: SCTP}
+        order_weight: 1050
+      - name: predefined
+        description: Vendor-provided profile such as "default" or "strict".
+        kind: Boolean
+        default_value: false
+        optional: false
+
+  - name: SecurityProfileGroup
+    namespace: Panos
+    label: Security Profile Group
+    icon: mdi:shield-check
+    include_in_menu: true
+    menu_placement: SecurityPolicy
+    inherit_from: [PanosGenericScopedObject]
+    relationships:
+      - name: security_profiles
+        description: At most one profile per profile_type.
+        peer: PanosSecurityProfile
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: panos_profile_group__profile
+
+  - name: LogForwardingProfile
+    namespace: Panos
+    label: Log Forwarding Profile
+    icon: mdi:math-log
+    include_in_menu: true
+    menu_placement: SecurityPolicy
+    inherit_from: [PanosGenericScopedObject]
+
+  - name: ZoneProtectionProfile
+    namespace: Panos
+    label: Zone Protection Profile
+    icon: mdi:shield-outline
+    include_in_menu: true
+    menu_placement: SecurityZone
+    inherit_from: [PanosGenericScopedObject]
+
+  - name: CertificateProfile
+    namespace: Panos
+    label: Certificate Profile
+    icon: mdi:certificate-outline
+    include_in_menu: false
+    inherit_from: [PanosGenericScopedObject]
+
+  - name: InterfaceManagementProfile
+    namespace: Panos
+    label: Interface Mgmt Profile
+    icon: mdi:shield-key-outline
+    include_in_menu: true
+    menu_placement: PanosFirewall
+    inherit_from: [PanosGenericScopedObject]
+    attributes:
+      - {name: ping, kind: Boolean, default_value: true, optional: false}
+      - {name: https, label: HTTPS, kind: Boolean, default_value: false, optional: false}
+      - {name: ssh, label: SSH, kind: Boolean, default_value: false, optional: false}
+      - {name: snmp, label: SNMP, kind: Boolean, default_value: false, optional: false}
+      - {name: response_pages, kind: Boolean, default_value: false, optional: false}
+      - {name: userid_service, label: User-ID service, kind: Boolean, default_value: false, optional: false}
+      - name: permitted_ips
+        label: Permitted IPs
+        kind: List
+        optional: true
+
+  # ======================================================== policies
+  - name: Rulebase
+    namespace: Panos
+    label: PAN-OS Rulebase
+    description: >-
+      pre-rulebase / post-rulebase of a device group or shared (Panorama), or the
+      local rulebase of a vsys.
+    icon: material-symbols:policy-outline
+    include_in_menu: true
+    menu_placement: SecurityPolicy
+    inherit_from: [SecurityGenericPolicy]
+    uniqueness_constraints:
+      - [scope, rulebase__value]
+    attributes:
+      - name: rulebase
+        kind: Dropdown
+        default_value: local
+        optional: false
+        choices:
+          - {name: pre, label: Pre-rulebase (Panorama)}
+          - {name: post, label: Post-rulebase (Panorama)}
+          - {name: local, label: Local rulebase (vsys)}
+        order_weight: 1050
+
+  - name: SecurityRule
+    namespace: Panos
+    label: PAN-OS Security Rule
+    icon: material-symbols:policy
+    include_in_menu: true
+    menu_placement: SecurityPolicy
+    inherit_from: [SecurityGenericPolicyRule]
+    attributes:
+      - name: rule_type
+        kind: Dropdown
+        default_value: universal
+        optional: false
+        choices:
+          - {name: universal, label: Universal}
+          - {name: intrazone, label: Intrazone}
+          - {name: interzone, label: Interzone}
+        order_weight: 1180
+      - name: reject_mode
+        description: Only used when action = reject. Maps to PAN-OS reset-client / reset-server / reset-both.
+        kind: Dropdown
+        optional: true
+        choices:
+          - {name: reset_client, label: Reset client}
+          - {name: reset_server, label: Reset server}
+          - {name: reset_both, label: Reset both}
+        order_weight: 1210
+      - name: log_start
+        label: Log at session start
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1240
+      - name: source_users
+        description: User / group names, or "known-user", "unknown", "pre-logon".
+        kind: List
+        optional: true
+        order_weight: 1330
+      - name: source_hip
+        label: Source HIP profiles
+        kind: List
+        optional: true
+        order_weight: 1340
+      - name: destination_hip
+        label: Destination HIP profiles
+        kind: List
+        optional: true
+        order_weight: 1440
+      - name: application_default
+        label: Service = application-default
+        description: Use each application's default ports (overrides `services`).
+        kind: Boolean
+        default_value: true
+        optional: false
+        order_weight: 1505
+      - name: url_categories
+        kind: List
+        optional: true
+        order_weight: 1530
+      - name: disable_server_response_inspection
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1700
+      - name: icmp_unreachable
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1710
+      - name: group_tag
+        kind: Text
+        optional: true
+        order_weight: 1720
+      - name: target_negate
+        description: Apply to all firewalls except `target_firewalls`.
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1810
+      - name: uuid
+        label: UUID
+        description: Rule UUID as assigned by PAN-OS (read back after deploy).
+        kind: Text
+        optional: true
+        read_only: false
+        order_weight: 2100
+    relationships:
+      - name: profile_group
+        peer: PanosSecurityProfileGroup
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_security_rule__profile_group
+        order_weight: 1600
+      - name: security_profiles
+        description: Individual profiles (mutually exclusive with profile_group).
+        peer: PanosSecurityProfile
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: panos_security_rule__profile
+        order_weight: 1610
+      - name: log_forwarding_profile
+        peer: PanosLogForwardingProfile
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_security_rule__log_forwarding_profile
+        order_weight: 1620
+      - name: schedule
+        peer: PanosSchedule
+        kind: Attribute
+        cardinality: one
+        optional: true
+        order_weight: 1630
+      - name: target_firewalls
+        description: Panorama "Target" tab. Empty = all firewalls in the device group.
+        peer: PanosFirewall
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: panos_security_rule__target
+        order_weight: 1800
+
+  - name: NatRule
+    namespace: Panos
+    label: PAN-OS NAT Rule
+    icon: mdi:swap-horizontal-bold
+    include_in_menu: true
+    menu_placement: SecurityPolicy
+    inherit_from: [SecurityGenericNatRule]
+    attributes:
+      - name: nat_type
+        kind: Dropdown
+        default_value: ipv4
+        optional: false
+        choices:
+          - {name: ipv4, label: ipv4}
+          - {name: nat64, label: nat64}
+          - {name: nptv6, label: nptv6}
+        order_weight: 1180
+      - name: dynamic_distribution
+        description: Only for destination_translation_type = dynamic.
+        kind: Dropdown
+        optional: true
+        choices:
+          - {name: round_robin, label: Round robin}
+          - {name: source_ip_hash, label: Source IP hash}
+          - {name: ip_modulo, label: IP modulo}
+          - {name: ip_hash, label: IP hash}
+          - {name: least_sessions, label: Least sessions}
+        order_weight: 1760
+      - name: dns_rewrite
+        kind: Dropdown
+        optional: true
+        choices:
+          - {name: forward, label: Forward}
+          - {name: reverse, label: Reverse}
+        order_weight: 1770
+      - name: active_active_device_binding
+        kind: Dropdown
+        optional: true
+        choices:
+          - {name: primary, label: primary}
+          - {name: both, label: both}
+          - {name: "0", label: "0"}
+          - {name: "1", label: "1"}
+        order_weight: 1780
+      - name: target_negate
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1810
+      - name: uuid
+        label: UUID
+        kind: Text
+        optional: true
+        order_weight: 2100
+    relationships:
+      - name: to_interface
+        label: Destination interface
+        description: PAN-OS "to-interface" (egress interface match).
+        peer: DcimInterface
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: panos_nat_rule__to_interface
+        order_weight: 1320
+      - name: target_firewalls
+        peer: PanosFirewall
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: panos_nat_rule__target
+        order_weight: 1800
+
+extensions:
+  nodes:
+    - kind: BuiltinTag
+      attributes:
+        - name: panos_color
+          label: PAN-OS color
+          description: Administrative tag color when rendered to PAN-OS.
+          kind: Dropdown
+          optional: true
+          choices:
+            - {name: color1, label: Red, color: "#cd383f"}
+            - {name: color2, label: Green, color: "#72a392"}
+            - {name: color3, label: Blue, color: "#5b6f9e"}
+            - {name: color4, label: Yellow, color: "#ebd722"}
+            - {name: color5, label: Copper, color: "#c27d2a"}
+            - {name: color6, label: Orange, color: "#f5a623"}
+            - {name: color7, label: Purple, color: "#7d3953"}
+            - {name: color8, label: Gray, color: "#5a5a5a"}
+            - {name: color9, label: Light Green, color: "#c2d62f"}
+            - {name: color10, label: Cyan, color: "#5bc6c4"}
+            - {name: color11, label: Light Gray, color: "#a7a9ac"}
+            - {name: color12, label: Blue Gray, color: "#678ba1"}
+            - {name: color13, label: Lime, color: "#93c90e"}
+            - {name: color14, label: Black, color: "#000000"}
+            - {name: color15, label: Gold, color: "#ffc425"}
+            - {name: color16, label: Brown, color: "#a08561"}
+            - {name: color17, label: Olive, color: "#8f9b45"}
+            # PAN-OS skips color18. 19-42 follow PAN-OS numbering; labels are generic.
+            - {name: color19, label: Color 19}
+            - {name: color20, label: Color 20}
+            - {name: color21, label: Color 21}
+            - {name: color22, label: Color 22}
+            - {name: color23, label: Color 23}
+            - {name: color24, label: Color 24}
+            - {name: color25, label: Color 25}
+            - {name: color26, label: Color 26}
+            - {name: color27, label: Color 27}
+            - {name: color28, label: Color 28}
+            - {name: color29, label: Color 29}
+            - {name: color30, label: Color 30}
+            - {name: color31, label: Color 31}
+            - {name: color32, label: Color 32}
+            - {name: color33, label: Color 33}
+            - {name: color34, label: Color 34}
+            - {name: color35, label: Color 35}
+            - {name: color36, label: Color 36}
+            - {name: color37, label: Color 37}
+            - {name: color38, label: Color 38}
+            - {name: color39, label: Color 39}
+            - {name: color40, label: Color 40}
+            - {name: color41, label: Color 41}
+            - {name: color42, label: Color 42}

@@ -1,0 +1,947 @@
+# yaml-language-server: $schema=https://schema.infrahub.app/infrahub/schema/latest.json
+# ---------------------------------------------------------------------------
+# Vendor-neutral firewall / security-policy schema for Infrahub.
+#
+# Depends on (load first) OpsMill schema-library:
+#   base/organization.yml, base/location.yml, base/dcim.yml, base/ipam.yml
+#
+# Derived from OpsMill schema-library experimental/security (Apache-2.0) and
+# reshaped so that vendor schemas (see ../paloalto) plug in by inheriting the
+# Security* generics below. Everything that points "across" the model (rules ->
+# addresses, interfaces -> zones, ...) targets a GENERIC, never a node, so a
+# vendor node is a drop-in replacement for the neutral node.
+#
+# Conventions
+#   * An empty many-relationship on a rule means "any".
+#   * Every policy object lives in exactly one SecurityGenericScope (a vendor
+#     "where does this object live" construct: PAN-OS shared/device-group/vsys,
+#     FortiGate VDOM, SRX logical-system, ...). For vendors without one, use the
+#     neutral SecurityScope node (e.g. a single "global" scope).
+#   * Object names are unique per scope; HFID = [scope name, object name].
+# ---------------------------------------------------------------------------
+---
+version: "1.0"
+
+generics:
+  # ------------------------------------------------------------------ scope
+  - name: GenericScope
+    namespace: Security
+    label: Policy Scope
+    description: Administrative container that owns policy objects (vsys, device group, VDOM, ...).
+    include_in_menu: false
+    icon: mdi:folder-lock-outline
+    human_friendly_id: [name__value]
+    display_label: name__value
+    order_by: [name__value]
+    attributes:
+      - name: name
+        kind: Text
+        unique: true
+        optional: false
+        # Vendor nodes may also inherit DcimGenericDevice which defines `name` too.
+        allow_override: any
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        allow_override: any
+        order_weight: 1100
+
+  # ------------------------------------------------------------------ device
+  - name: GenericFirewall
+    namespace: Security
+    label: Firewall
+    description: Mixin for any device that enforces security policy.
+    include_in_menu: false
+    icon: mdi:wall-fire
+    relationships:
+      - name: ha_group
+        label: HA Group
+        peer: SecurityHighAvailabilityGroup
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: security_ha_group__member
+        order_weight: 1800
+
+  - name: GenericZoneMember
+    namespace: Security
+    label: Zone Member
+    description: Mixin for interfaces that can be bound to a security zone.
+    include_in_menu: false
+    relationships:
+      - name: security_zone
+        label: Security Zone
+        peer: SecurityGenericZone
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: security_zone__member
+        order_weight: 1450
+
+  # ------------------------------------------------------------------ zones
+  - name: GenericZone
+    namespace: Security
+    label: Security Zone
+    include_in_menu: false
+    icon: game-icons:fire-zone
+    human_friendly_id: [scope__name__value, name__value]
+    display_label: name__value
+    order_by: [name__value]
+    uniqueness_constraints:
+      - [scope, name__value]
+    attributes:
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1100
+    relationships:
+      - name: scope
+        peer: SecurityGenericScope
+        kind: Attribute
+        cardinality: one
+        optional: false
+        order_weight: 900
+      - name: members
+        label: Interfaces
+        peer: SecurityGenericZoneMember
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: security_zone__member
+        order_weight: 1500
+
+  # ------------------------------------------------------------------ addresses
+  - name: GenericAddress
+    namespace: Security
+    label: Address Object
+    description: Any single address-like object usable as rule source/destination.
+    include_in_menu: false
+    icon: mdi:ip-outline
+    human_friendly_id: [scope__name__value, name__value]
+    display_label: name__value
+    order_by: [name__value]
+    uniqueness_constraints:
+      - [scope, name__value]
+    attributes:
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1900
+    relationships:
+      - name: scope
+        peer: SecurityGenericScope
+        kind: Attribute
+        cardinality: one
+        optional: false
+        order_weight: 900
+      - name: tags
+        peer: BuiltinTag
+        kind: Attribute
+        cardinality: many
+        optional: true
+        order_weight: 2000
+
+  - name: GenericAddressGroup
+    namespace: Security
+    label: Address Group
+    include_in_menu: false
+    icon: mdi:ip-network-outline
+    human_friendly_id: [scope__name__value, name__value]
+    display_label: name__value
+    order_by: [name__value]
+    uniqueness_constraints:
+      - [scope, name__value]
+    attributes:
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1900
+    relationships:
+      - name: scope
+        peer: SecurityGenericScope
+        kind: Attribute
+        cardinality: one
+        optional: false
+        order_weight: 900
+      - name: tags
+        peer: BuiltinTag
+        kind: Attribute
+        cardinality: many
+        optional: true
+        order_weight: 2000
+
+  # ------------------------------------------------------------------ services
+  - name: GenericService
+    namespace: Security
+    label: Service Object
+    include_in_menu: false
+    icon: mdi:protocol
+    human_friendly_id: [scope__name__value, name__value]
+    display_label: name__value
+    order_by: [name__value]
+    uniqueness_constraints:
+      - [scope, name__value]
+    attributes:
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1900
+    relationships:
+      - name: scope
+        peer: SecurityGenericScope
+        kind: Attribute
+        cardinality: one
+        optional: false
+        order_weight: 900
+      - name: tags
+        peer: BuiltinTag
+        kind: Attribute
+        cardinality: many
+        optional: true
+        order_weight: 2000
+
+  - name: GenericServiceGroup
+    namespace: Security
+    label: Service Group
+    include_in_menu: false
+    icon: mdi:format-list-group
+    human_friendly_id: [scope__name__value, name__value]
+    display_label: name__value
+    order_by: [name__value]
+    uniqueness_constraints:
+      - [scope, name__value]
+    attributes:
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1900
+    relationships:
+      - name: scope
+        peer: SecurityGenericScope
+        kind: Attribute
+        cardinality: one
+        optional: false
+        order_weight: 900
+      - name: tags
+        peer: BuiltinTag
+        kind: Attribute
+        cardinality: many
+        optional: true
+        order_weight: 2000
+
+  # ------------------------------------------------------------------ applications (L7)
+  - name: GenericApplication
+    namespace: Security
+    label: Application
+    description: Layer-7 application, application group or application filter.
+    include_in_menu: false
+    icon: mdi:application-outline
+    human_friendly_id: [scope__name__value, name__value]
+    display_label: name__value
+    order_by: [name__value]
+    uniqueness_constraints:
+      - [scope, name__value]
+    attributes:
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1900
+    relationships:
+      - name: scope
+        peer: SecurityGenericScope
+        kind: Attribute
+        cardinality: one
+        optional: false
+        order_weight: 900
+
+  # ------------------------------------------------------------------ policy containers
+  - name: GenericPolicy
+    namespace: Security
+    label: Policy
+    description: Ordered rule set (rulebase) holding security and NAT rules.
+    include_in_menu: false
+    icon: material-symbols:policy-outline
+    human_friendly_id: [scope__name__value, name__value]
+    display_label: name__value
+    order_by: [name__value]
+    uniqueness_constraints:
+      - [scope, name__value]
+    attributes:
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1100
+    relationships:
+      - name: scope
+        peer: SecurityGenericScope
+        kind: Attribute
+        cardinality: one
+        optional: false
+        order_weight: 900
+      - name: security_rules
+        peer: SecurityGenericPolicyRule
+        kind: Component
+        cardinality: many
+        optional: true
+        identifier: security_policy__security_rule
+        order_weight: 1500
+      - name: nat_rules
+        label: NAT Rules
+        peer: SecurityGenericNatRule
+        kind: Component
+        cardinality: many
+        optional: true
+        identifier: security_policy__nat_rule
+        order_weight: 1600
+
+  # ------------------------------------------------------------------ security rule
+  - name: GenericPolicyRule
+    namespace: Security
+    label: Security Rule
+    include_in_menu: false
+    icon: material-symbols:policy
+    display_label: "{{ index__value }} - {{ name__value }}"
+    order_by: [policy__name__value, index__value]
+    uniqueness_constraints:
+      - [policy, name__value]
+      - [policy, index__value]
+    attributes:
+      - name: index
+        label: Position
+        description: Evaluation order inside the policy (lower first).
+        kind: Number
+        optional: false
+        order_weight: 900
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1100
+      - name: enabled
+        kind: Boolean
+        default_value: true
+        optional: false
+        order_weight: 1150
+      - name: action
+        kind: Dropdown
+        optional: false
+        default_value: permit
+        # openconfig-acl forwarding-action: ACCEPT / DROP / REJECT.
+        choices:
+          - name: permit
+            label: Permit
+            color: "#00d25b"
+          - name: deny
+            label: Deny
+            description: Block using the platform's default deny behaviour.
+            color: "#e04040"
+          - name: drop
+            label: Drop
+            description: Silently discard.
+            color: "#b71c1c"
+          - name: reject
+            label: Reject
+            description: Block and notify (TCP RST / ICMP unreachable).
+            color: "#ff9800"
+        order_weight: 1200
+      - name: log
+        label: Log at session end
+        kind: Boolean
+        default_value: true
+        optional: false
+        order_weight: 1250
+      - name: negate_source
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1350
+      - name: negate_destination
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1450
+    relationships:
+      - name: policy
+        peer: SecurityGenericPolicy
+        kind: Parent
+        cardinality: one
+        optional: false
+        identifier: security_policy__security_rule
+        order_weight: 800
+      - name: source_zones
+        peer: SecurityGenericZone
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: security_rule__source_zone
+        order_weight: 1300
+      - name: source_addresses
+        peer: SecurityGenericAddress
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: security_rule__source_address
+        order_weight: 1310
+      - name: source_address_groups
+        peer: SecurityGenericAddressGroup
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: security_rule__source_address_group
+        order_weight: 1320
+      - name: destination_zones
+        peer: SecurityGenericZone
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: security_rule__destination_zone
+        order_weight: 1400
+      - name: destination_addresses
+        peer: SecurityGenericAddress
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: security_rule__destination_address
+        order_weight: 1410
+      - name: destination_address_groups
+        peer: SecurityGenericAddressGroup
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: security_rule__destination_address_group
+        order_weight: 1420
+      - name: applications
+        peer: SecurityGenericApplication
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: security_rule__application
+        order_weight: 1500
+      - name: services
+        peer: SecurityGenericService
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: security_rule__service
+        order_weight: 1510
+      - name: service_groups
+        peer: SecurityGenericServiceGroup
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: security_rule__service_group
+        order_weight: 1520
+      - name: tags
+        peer: BuiltinTag
+        kind: Attribute
+        cardinality: many
+        optional: true
+        order_weight: 2000
+
+  # ------------------------------------------------------------------ NAT rule
+  - name: GenericNatRule
+    namespace: Security
+    label: NAT Rule
+    include_in_menu: false
+    icon: mdi:swap-horizontal-bold
+    display_label: "{{ index__value }} - {{ name__value }}"
+    order_by: [policy__name__value, index__value]
+    uniqueness_constraints:
+      - [policy, name__value]
+      - [policy, index__value]
+    attributes:
+      - name: index
+        label: Position
+        kind: Number
+        optional: false
+        order_weight: 900
+      - name: name
+        kind: Text
+        optional: false
+        order_weight: 1000
+      - name: description
+        kind: Text
+        optional: true
+        order_weight: 1100
+      - name: enabled
+        kind: Boolean
+        default_value: true
+        optional: false
+        order_weight: 1150
+      - name: source_translation_type
+        kind: Dropdown
+        default_value: none
+        optional: false
+        choices:
+          - name: none
+            label: None
+          - name: dynamic_ip_and_port
+            label: Dynamic IP and port (PAT / masquerade)
+          - name: dynamic_ip
+            label: Dynamic IP (pool)
+          - name: static_ip
+            label: Static IP (1:1)
+        order_weight: 1600
+      - name: bidirectional
+        description: For static source NAT, also create the reverse destination NAT.
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1650
+      - name: destination_translation_type
+        kind: Dropdown
+        default_value: none
+        optional: false
+        choices:
+          - name: none
+            label: None
+          - name: static
+            label: Static
+          - name: dynamic
+            label: Dynamic (FQDN / load-distributed)
+        order_weight: 1700
+      - name: translated_destination_port
+        kind: Number
+        optional: true
+        order_weight: 1750
+    relationships:
+      - name: policy
+        peer: SecurityGenericPolicy
+        kind: Parent
+        cardinality: one
+        optional: false
+        identifier: security_policy__nat_rule
+        order_weight: 800
+      - name: source_zones
+        peer: SecurityGenericZone
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: nat_rule__source_zone
+        order_weight: 1300
+      - name: destination_zones
+        peer: SecurityGenericZone
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: nat_rule__destination_zone
+        order_weight: 1310
+      - name: source_addresses
+        peer: SecurityGenericAddress
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: nat_rule__source_address
+        order_weight: 1400
+      - name: source_address_groups
+        peer: SecurityGenericAddressGroup
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: nat_rule__source_address_group
+        order_weight: 1410
+      - name: destination_addresses
+        peer: SecurityGenericAddress
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: nat_rule__destination_address
+        order_weight: 1420
+      - name: destination_address_groups
+        peer: SecurityGenericAddressGroup
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: nat_rule__destination_address_group
+        order_weight: 1430
+      - name: service
+        peer: SecurityGenericService
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: nat_rule__service
+        order_weight: 1500
+      - name: translated_source_addresses
+        peer: SecurityGenericAddress
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: nat_rule__translated_source_address
+        order_weight: 1610
+      - name: translated_source_interface
+        description: Use this interface's address for source translation.
+        peer: DcimInterface
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: nat_rule__translated_source_interface
+        order_weight: 1620
+      - name: translated_destination_address
+        peer: SecurityGenericAddress
+        kind: Attribute
+        cardinality: one
+        optional: true
+        identifier: nat_rule__translated_destination_address
+        order_weight: 1710
+      - name: tags
+        peer: BuiltinTag
+        kind: Attribute
+        cardinality: many
+        optional: true
+        order_weight: 2000
+
+nodes:
+  # ------------------------------------------------------------------ scope / device
+  - name: Scope
+    namespace: Security
+    label: Policy Scope
+    description: Neutral scope for vendors without a native container (or for predefined objects).
+    icon: mdi:folder-lock-outline
+    include_in_menu: true
+    inherit_from: [SecurityGenericScope]
+
+  - name: Firewall
+    namespace: Security
+    label: Firewall
+    description: Vendor-neutral firewall.
+    icon: mdi:wall-fire
+    include_in_menu: true
+    inherit_from:
+      - DcimGenericDevice
+      - DcimPhysicalDevice
+      - CoreArtifactTarget
+      - SecurityGenericFirewall
+    attributes:
+      - name: status
+        kind: Dropdown
+        default_value: active
+        optional: false
+        choices:
+          - {name: active, label: Active, color: "#00d25b"}
+          - {name: provisioning, label: Provisioning, color: "#f0ad4e"}
+          - {name: maintenance, label: Maintenance, color: "#ff9800"}
+          - {name: decommissioning, label: Decommissioning, color: "#e04040"}
+        order_weight: 1200
+      - name: role
+        kind: Dropdown
+        optional: true
+        choices:
+          - {name: perimeter, label: Perimeter, color: "#6a5acd"}
+          - {name: internal, label: Internal segmentation, color: "#7f7fff"}
+          - {name: datacenter, label: Data center, color: "#aeeeee"}
+          - {name: branch, label: Branch, color: "#bf7f7f"}
+          - {name: cloud, label: Cloud, color: "#b2d4e6"}
+        order_weight: 1300
+
+  - name: FirewallInterface
+    namespace: Security
+    label: Firewall Interface
+    icon: mdi:ethernet
+    include_in_menu: false
+    inherit_from:
+      - DcimInterface
+      - InterfaceLayer2
+      - InterfaceLayer3
+      - DcimEndpoint
+      - SecurityGenericZoneMember
+
+  - name: HighAvailabilityGroup
+    namespace: Security
+    label: HA Group
+    description: Firewall cluster / HA pair.
+    icon: mdi:sync
+    include_in_menu: true
+    human_friendly_id: [name__value]
+    display_label: name__value
+    attributes:
+      - name: name
+        kind: Text
+        unique: true
+        optional: false
+      - name: mode
+        kind: Dropdown
+        default_value: active_passive
+        optional: false
+        choices:
+          - {name: active_passive, label: Active / Passive}
+          - {name: active_active, label: Active / Active}
+      - name: group_id
+        label: Group ID
+        kind: Number
+        optional: true
+      - name: description
+        kind: Text
+        optional: true
+    relationships:
+      - name: members
+        peer: SecurityGenericFirewall
+        kind: Generic
+        cardinality: many
+        optional: true
+        identifier: security_ha_group__member
+
+  # ------------------------------------------------------------------ zones
+  - name: Zone
+    namespace: Security
+    label: Security Zone
+    icon: game-icons:fire-zone
+    include_in_menu: true
+    inherit_from: [SecurityGenericZone]
+
+  # ------------------------------------------------------------------ addresses
+  - name: IPAddress
+    namespace: Security
+    label: Address (host)
+    icon: mdi:ip-outline
+    include_in_menu: true
+    menu_placement: SecurityAddressGroup
+    inherit_from: [SecurityGenericAddress]
+    display_label: "{{ name__value }} ({{ address__value }})"
+    attributes:
+      - name: address
+        kind: IPHost
+        optional: false
+        order_weight: 1200
+    relationships:
+      - name: ipam_address
+        label: IPAM IP Address
+        description: Optional link to the IPAM source of truth.
+        peer: IpamIPAddress
+        kind: Attribute
+        cardinality: one
+        optional: true
+        order_weight: 1300
+
+  - name: Prefix
+    namespace: Security
+    label: Address (network)
+    icon: mdi:ip-network-outline
+    include_in_menu: true
+    menu_placement: SecurityAddressGroup
+    inherit_from: [SecurityGenericAddress]
+    display_label: "{{ name__value }} ({{ prefix__value }})"
+    attributes:
+      - name: prefix
+        kind: IPNetwork
+        optional: false
+        order_weight: 1200
+    relationships:
+      - name: ipam_prefix
+        label: IPAM Prefix
+        peer: IpamPrefix
+        kind: Attribute
+        cardinality: one
+        optional: true
+        order_weight: 1300
+
+  - name: IPRange
+    namespace: Security
+    label: Address (range)
+    icon: mdi:ray-start-end
+    include_in_menu: true
+    menu_placement: SecurityAddressGroup
+    inherit_from: [SecurityGenericAddress]
+    display_label: "{{ name__value }} ({{ start_address__value }}-{{ end_address__value }})"
+    attributes:
+      - name: start_address
+        kind: IPHost
+        optional: false
+        order_weight: 1200
+      - name: end_address
+        kind: IPHost
+        optional: false
+        order_weight: 1210
+
+  - name: FQDN
+    namespace: Security
+    label: Address (FQDN)
+    icon: eos-icons:dns
+    include_in_menu: true
+    menu_placement: SecurityAddressGroup
+    inherit_from: [SecurityGenericAddress]
+    display_label: "{{ name__value }} ({{ fqdn__value }})"
+    attributes:
+      - name: fqdn
+        label: FQDN
+        kind: Text
+        optional: false
+        # https://stackoverflow.com/questions/11809631/fully-qualified-domain-name-validation
+        regex: "(?=^.{1,253}$)(^(((?!-)[a-zA-Z0-9-]{1,63}(?<!-))|((?!-)[a-zA-Z0-9-]{1,63}(?<!-)\\.)+[a-zA-Z]{2,63})$)"
+        order_weight: 1200
+
+  - name: AddressGroup
+    namespace: Security
+    label: Address Group
+    description: Static address group.
+    icon: mdi:ip-network-outline
+    include_in_menu: true
+    inherit_from: [SecurityGenericAddressGroup]
+    relationships:
+      - name: addresses
+        peer: SecurityGenericAddress
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: address_group__address
+        order_weight: 1200
+      - name: member_groups
+        label: Nested groups
+        peer: SecurityGenericAddressGroup
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: address_group__member_group
+        order_weight: 1210
+
+  # ------------------------------------------------------------------ services
+  - name: Service
+    namespace: Security
+    label: Service
+    icon: mdi:protocol
+    include_in_menu: true
+    inherit_from: [SecurityGenericService]
+    display_label: "{{ name__value }} ({{ protocol__value }}/{{ destination_ports__value }})"
+    attributes:
+      - name: protocol
+        kind: Dropdown
+        optional: false
+        default_value: tcp
+        choices:
+          - {name: tcp, label: TCP}
+          - {name: udp, label: UDP}
+          - {name: sctp, label: SCTP}
+        order_weight: 1200
+      - name: destination_ports
+        description: Comma-separated ports and ranges, e.g. "80,443,8000-8080".
+        kind: Text
+        optional: false
+        regex: "^[0-9]{1,5}(-[0-9]{1,5})?(,[0-9]{1,5}(-[0-9]{1,5})?)*$"
+        order_weight: 1210
+      - name: source_ports
+        kind: Text
+        optional: true
+        regex: "^[0-9]{1,5}(-[0-9]{1,5})?(,[0-9]{1,5}(-[0-9]{1,5})?)*$"
+        order_weight: 1220
+
+  - name: ServiceGroup
+    namespace: Security
+    label: Service Group
+    icon: mdi:format-list-group
+    include_in_menu: true
+    menu_placement: SecurityService
+    inherit_from: [SecurityGenericServiceGroup]
+    relationships:
+      - name: services
+        peer: SecurityGenericService
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: service_group__service
+        order_weight: 1200
+      - name: member_groups
+        label: Nested groups
+        peer: SecurityGenericServiceGroup
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: service_group__member_group
+        order_weight: 1210
+
+  # ------------------------------------------------------------------ applications
+  - name: Application
+    namespace: Security
+    label: Application
+    icon: mdi:application-outline
+    include_in_menu: true
+    inherit_from: [SecurityGenericApplication]
+    attributes:
+      - name: category
+        kind: Text
+        optional: true
+        order_weight: 1200
+      - name: subcategory
+        kind: Text
+        optional: true
+        order_weight: 1210
+      - name: risk
+        kind: Number
+        optional: true
+        order_weight: 1220
+      - name: predefined
+        description: Shipped by the vendor (content update) rather than user-defined.
+        kind: Boolean
+        default_value: false
+        optional: false
+        order_weight: 1230
+
+  - name: ApplicationGroup
+    namespace: Security
+    label: Application Group
+    icon: mdi:apps
+    include_in_menu: true
+    menu_placement: SecurityApplication
+    inherit_from: [SecurityGenericApplication]
+    relationships:
+      - name: members
+        peer: SecurityGenericApplication
+        kind: Attribute
+        cardinality: many
+        optional: true
+        identifier: application_group__member
+        order_weight: 1200
+
+  # ------------------------------------------------------------------ policies
+  - name: Policy
+    namespace: Security
+    label: Policy
+    icon: material-symbols:policy-outline
+    include_in_menu: true
+    inherit_from: [SecurityGenericPolicy]
+
+  - name: PolicyRule
+    namespace: Security
+    label: Security Rule
+    icon: material-symbols:policy
+    include_in_menu: true
+    menu_placement: SecurityPolicy
+    inherit_from: [SecurityGenericPolicyRule]
+
+  - name: NatRule
+    namespace: Security
+    label: NAT Rule
+    icon: mdi:swap-horizontal-bold
+    include_in_menu: true
+    menu_placement: SecurityPolicy
+    inherit_from: [SecurityGenericNatRule]
