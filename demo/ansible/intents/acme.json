@@ -1,5 +1,5 @@
 {
-  "_comment": "Resolved tenant intent: Claude extraction + Infrahub lookups + pool allocations.",
+  "_comment": "RESOLVED request: output of the placement step (docs/tenant-change-workflow.md section 2), not what the requester writes.",
   "ticket": "CHG0012345",
   "tenant_name": "acme",
   "vlan_id": 210,

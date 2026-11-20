@@ -14,7 +14,8 @@ The core is vendor-neutral, and a PAN-OS / Panorama extension sits on top of it.
   security profiles and profile groups, and PAN-OS security and NAT rules. It also extends
   `BuiltinTag` with a PAN-OS tag color.
 
-Read [docs/design.md](docs/design.md) for the modelling decisions and
+Read [docs/tenant-change-workflow.md](docs/tenant-change-workflow.md) for the end-to-end change workflow,
+[docs/design.md](docs/design.md) for the modelling decisions and
 [docs/mapping.md](docs/mapping.md) for the kind ↔ PAN-OS XPath ↔ Terraform ↔ OpenConfig mapping.
 
 ## Where the model comes from
