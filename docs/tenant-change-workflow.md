@@ -10,9 +10,11 @@ verified switch and firewall configuration, inside the existing change workflow.
 2. **Infrahub is the source of truth.** It knows what exists and how it is connected, and it
    holds the placement rules and resource pools. Where things go is derived from it,
    never typed into a ticket.
-3. **AI only reads the ticket.** Claude turns the text into a fixed, structured form.
-   Everything after that is deterministic code: placement, allocation, config
-   generation and checks.
+3. **The intake agent decides whether it has enough information; code decides what gets built.**
+   The agent (Claude with read-only tools) reads the ticket, checks facts against
+   Infrahub, previews placement, and either asks the requester or submits a complete
+   business request. Everything after submission is deterministic code: placement,
+   allocation, config generation and checks.
 4. **The change tool is in charge** of states, approvals and the audit trail. The
    automation acts only when the ticket reaches a state that allows it.
 5. **Everything the change record needs is generated**, not copied in by hand.
@@ -24,38 +26,91 @@ verified switch and firewall configuration, inside the existing change workflow.
 | Requester | Describes the business need in the ticket |
 | Change tool (ServiceNow / Jira / …) | Change record, states, approvals, audit trail |
 | Change service | Small app reacting to ticket states and driving the steps below |
-| Claude | Ticket text → structured business request |
+| Intake agent (Claude + read-only tools) | Ticket → complete, validated business request; asks the requester when needed |
 | Infrahub | Source of truth: topology, tenants, policy, pools, placement rules; one branch per change |
 | Ansible + Arista AVD | Switch configs: build, diff, deploy, verify (`demo/ansible`) |
 | Firewall automation | PAN-OS / Panorama configs: build, diff, deploy, verify |
 | Approvers / change board | Approve or reject, as today |
 
-## 1. The business request
+## 1. Intake agent: from ticket to a complete business request
 
-Example ticket:
+The intake agent decides whether it has all the information it needs. It works with
+**read-only tools** and two ways to finish: ask the requester, or submit.
+
+| Tool | Purpose |
+|---|---|
+| `get_ticket` / `get_ticket_comments` | Read the request and any replies |
+| `find_tenant(name)` | New tenant or existing? |
+| `find_servers(names)` | Are the servers in Infrahub, and where are they cabled? |
+| `find_application(name)` | Known App-ID / application object? |
+| `check_policy(request)` | Does the request break a rule (e.g. inbound "any", forbidden ports)? |
+| `preview_placement(request)` | Dry run of the placement step: resolved, ambiguous, or blocked, and why |
+| `ask_requester(question)` | Post a business-language question on the ticket and pause |
+| `submit_request(request)` | Hand over the complete request; ends intake |
+
+What the agent **cannot** do: write to Infrahub, create branches, touch devices, approve, or
+choose placement. `preview_placement` runs the same deterministic code as the real step,
+so the agent only learns whether placement *will* resolve.
+
+### When is a request complete?
+
+The agent decides, but against an explicit checklist that `submit_request` enforces
+in code (a submission that fails it is rejected back to the agent):
+
+- Tenant identified (new or existing).
+- Every server or application named exists in Infrahub, or the gap is a known
+  onboarding dependency.
+- Every traffic need is concrete: application or port and direction. "The usual
+  database access" is not concrete.
+- `check_policy` passes.
+- `preview_placement` resolves to exactly one answer, or the business choice behind
+  an ambiguity has been answered by the requester.
+- Requested date present, or the default change window is accepted.
+
+### Example
+
+Ticket:
 
 > Please onboard new tenant **Acme Corp** for their **customer portal** (servers
-> **acme-srv1** and **acme-srv2**). They need outbound web browsing and HTTPS, and the
-> portal must be reachable from the internet on HTTPS. Go-live next Tuesday.
+> **acme-srv1** and **acme-srv2**). They need outbound web browsing and HTTPS, the
+> portal must be reachable from the internet on HTTPS, and the usual database access.
+> Go-live next Tuesday.
 
-What Claude extracts. These fields are the whole form; there are no location fields:
+Agent run:
+
+```
+find_tenant("acme")                → not found (new tenant)               ✓
+find_servers(["acme-srv1","acme-srv2"])
+                                   → both in DC1, cabled to leaf3/leaf4     ✓
+find_application("web-browsing"), ("ssl")                                 ✓
+"the usual database access"        → not concrete                         ✗
+ask_requester("Which database does the portal need to reach (name or subnet), and on which port?")
+   … requester: "orders-db in the shared services zone, TCP 5432"
+find_servers(["orders-db"])        → DC1, zone shared-services             ✓
+check_policy(...)                  → ok (inbound limited to 443)          ✓
+preview_placement(...)             → resolved: DC1, leaf3/leaf4, fw01      ✓
+submit_request(...)                → accepted
+```
+
+Submitted business request (still no network details; those come from placement):
 
 ```json
 {
+  "ticket": "CHG0012345",
   "tenant": "acme",
   "application": "customer portal",
   "servers": ["acme-srv1", "acme-srv2"],
   "outbound": ["web-browsing", "ssl"],
   "published_services": [{"name": "acme-web", "port": 443, "protocol": "tcp"}],
+  "internal_access": [{"to": "orders-db", "port": 5432, "protocol": "tcp"}],
   "constraints": [],
-  "requested_date": "next Tuesday",
-  "unclear_points": []
+  "requested_date": "2026-11-24",
+  "agent_notes": ["'usual database access' clarified by requester on ticket"]
 }
 ```
 
-`constraints` holds only business constraints the ticket states, such as "EU only" or
-"both data centers". `unclear_points` lists what Claude could not determine; the change
-service turns these into a question on the ticket instead of guessing.
+The agent's tool calls and its reasoning summary are attached to the ticket, so
+approvers can see how it concluded the request was complete.
 
 ## 2. Placement: deriving the network details from Infrahub
 
@@ -90,7 +145,7 @@ are cabled there. fw01: protects DC1."*
 | # | Change state | What happens | Touches the network? |
 |---|---|---|---|
 | 1 | **New** | Requester raises the ticket; moving it to "Ready for automation" notifies the change service. | No |
-| 2 | **New → Assess** | Claude extracts the business request. If anything is unclear, the change service asks on the ticket and waits. | No |
+| 2 | **New → Assess** | Intake agent checks the request against Infrahub, asks the requester if it needs to, and submits a complete business request. | No |
 | 3 | **Assess** | Infrahub branch `CHG<number>-<tenant>` is created. Placement and allocation run, then the generator creates the tenant objects on the branch. | No |
 | 4 | **Assess** | Switch configs are built without and with the tenant, then compared (Ansible + AVD). Firewall changes are built. Checks run: VLAN consistency between fabric and firewall, gateway inside the subnet, zone bound, rules use the new zone. | No |
 | 5 | **Assess → Authorize** | The change record is filled in automatically (next section). Risk and the change category are computed. | No |
@@ -104,7 +159,7 @@ are cabled there. fw01: protects DC1."*
 
 | Field | Generated from |
 |---|---|
-| Description | Ticket text + extracted business request |
+| Description | Ticket text + submitted business request + intake agent trail (tool calls, questions asked) |
 | Placement decisions | Placement step, with the reason for each |
 | Affected CIs | Devices with a non-empty diff (leaf3, leaf4, border1, fw01); untouched devices listed |
 | Implementation plan | Per-device config diffs |
@@ -138,7 +193,7 @@ main argument for having a source of truth.
 | Vendor-neutral + PAN-OS schema | Built, validated offline |
 | Switch build / diff / impact (Ansible + AVD) | Built, tested offline (`demo/ansible`) |
 | Switch precheck / deploy / verify / backout | Written, not yet run against devices |
-| Ticket → Claude → business request | Designed |
+| Intake agent (tools, completeness checklist) | Designed |
 | Placement + generator + checks in Infrahub | Designed; needs the schema additions above |
 | Firewall build and deploy | Designed |
 | Change tool connector | Needs the change tool and its state names |
